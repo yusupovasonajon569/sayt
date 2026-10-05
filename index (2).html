@@ -1,0 +1,573 @@
+<!--
+=====================================================================
+SUPABASE SQL -- Buni Supabase loyihangizdagi "SQL Editor" bo'limiga
+nusxalab, "RUN" tugmasini bosing. Bu kod bitta marta ishlatiladi.
+=====================================================================
+
+-- 1-QADAM: Jadval yaratish
+-- Bu jadvalda har bir ro'yxatdan o'tgan o'quvchining ismi, login va paroli saqlanadi.
+create table if not exists foydalanuvchilar (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamp with time zone default now(),
+  ism text not null,
+  login text not null unique,
+  parol text not null
+);
+
+-- Agar yuqoridagi buyruq xato bersa (gen_random_uuid topilmadi desa),
+-- avval shu qatorni ishlatib ko'ring, keyin yana jadval yaratish buyrug'ini ishlating:
+-- create extension if not exists pgcrypto;
+
+-- 2-QADAM: Row Level Security (RLS) ni yoqish
+-- Bu -- boshqalar sizning jadvalingizni ruxsatsiz o'zgartira olmasligi uchun kerak.
+alter table foydalanuvchilar enable row level security;
+
+-- 3-QADAM: anon (hammaga ochiq, login qilinmagan) foydalanuvchi uchun
+-- YOZISH (INSERT) huquqini berish -- bu "ro'yxatdan o'tish" ishlashi uchun kerak.
+create policy "Anon insert uchun ruxsat"
+on foydalanuvchilar
+for insert
+to anon
+with check (true);
+
+-- 4-QADAM: anon foydalanuvchi uchun O'QISH (SELECT) huquqini berish --
+-- bu "kirish" tekshiruvi va ro'yxatni ekranda ko'rsatish uchun kerak.
+create policy "Anon select uchun ruxsat"
+on foydalanuvchilar
+for select
+to anon
+using (true);
+
+-- DIQQAT: Bu -- o'quv (ta'lim) maqsadidagi oddiy misol. Haqiqiy loyihada
+-- parollarni ochiq matnda saqlash xavfli! Katta loyihalarda Supabase Auth
+-- (supabase.auth.signUp / signInWithPassword) ishlatish kerak.
+=====================================================================
+-->
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Veb-sayt Yaratishni O'rganamiz -- 11-sinf</title>
+
+<!-- Supabase kutubxonasini CDN orqali ulaymiz. Bu bitta JS kutubxona,
+     u orqali biz Supabase bazasiga ma'lumot yozamiz va o'qiymiz. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+  /* ============ UMUMIY SOZLAMALAR ============ */
+  /* Dars uchun sodda va katta harfli dizayn */
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 20px;
+    line-height: 1.5;
+    background: #f3f5f9;
+    color: #1a1a2e;
+    margin: 0;
+    padding: 0;
+  }
+  header {
+    background: #1a1a2e;
+    color: #ffffff;
+    text-align: center;
+    padding: 28px 16px;
+  }
+  header h1 {
+    font-size: 36px;
+    margin: 0 0 8px 0;
+    letter-spacing: 1px;
+  }
+  header p {
+    font-size: 20px;
+    margin: 0;
+    color: #c9d6ff;
+  }
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  .card {
+    background: #ffffff;
+    border: 2px solid #d4d9e6;
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  h2 {
+    font-size: 28px;
+    margin-top: 0;
+    color: #1a1a2e;
+  }
+  label {
+    display: block;
+    font-size: 20px;
+    font-weight: bold;
+    margin-top: 12px;
+  }
+  input {
+    width: 100%;
+    font-size: 20px;
+    padding: 12px;
+    margin-top: 6px;
+    border: 2px solid #aab2c8;
+    border-radius: 8px;
+  }
+  button {
+    font-size: 20px;
+    font-weight: bold;
+    padding: 14px 16px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 14px;
+  }
+  button:disabled {
+    background: #a9afc1 !important;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: #2d6cdf;
+    color: #ffffff;
+    width: 100%;
+  }
+  .nav-btn {
+    background: #eef2f9;
+    color: #1a1a2e;
+    border: 2px solid #2d6cdf;
+    margin: 4px 4px 4px 0;
+    padding: 12px 14px;
+  }
+  .nav-btn.active {
+    background: #2d6cdf;
+    color: #ffffff;
+  }
+  .hidden { display: none !important; }
+  .error {
+    color: #c0392b;
+    font-weight: bold;
+    font-size: 19px;
+  }
+  .success {
+    color: #1e824c;
+    font-weight: bold;
+    font-size: 19px;
+  }
+  pre {
+    background: #1a1a2e;
+    color: #7CFC00;
+    padding: 16px;
+    border-radius: 10px;
+    overflow-x: auto;
+    font-size: 17px;
+  }
+  #foydalanuvchilarRoyxati {
+    list-style: none;
+    padding: 0;
+    font-size: 21px;
+  }
+  #foydalanuvchilarRoyxati li {
+    padding: 10px 0;
+    border-bottom: 1px solid #e0e3ee;
+  }
+  footer.card ol, footer.card li {
+    font-size: 19px;
+  }
+  #logoutBtn {
+    width: auto;
+    float: right;
+    background: #c0392b;
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ SARLAVHA (HEADER) QISMI ============ -->
+<header>
+  <h1>VEB-SAYT YARATISHNI O'RGANAMIZ</h1>
+  <p>11-sinf o'quvchilari uchun HTML, CSS va JavaScript darsi</p>
+</header>
+
+<div class="container">
+
+  <!-- ===================================================== -->
+  <!-- 1-BO'LIM: KIRISH / RO'YXATDAN O'TISH                    -->
+  <!-- Sayt faqat shu yerdan kirgan foydalanuvchiga ochiladi   -->
+  <!-- ===================================================== -->
+  <section id="authSection" class="card">
+    <h2>KIRISH YOKI RO'YXATDAN O'TISH</h2>
+    <p>Darslarni ko'rish uchun avval ro'yxatdan o'ting, keyin login va parolingiz bilan kiring.</p>
+
+    <div>
+      <button id="showLoginBtn" class="nav-btn active" type="button">KIRISH</button>
+      <button id="showRegisterBtn" class="nav-btn" type="button">RO'YXATDAN O'TISH</button>
+    </div>
+
+    <!-- KIRISH FORMASI -->
+    <form id="loginForm">
+      <label for="loginLogin">LOGIN</label>
+      <input type="text" id="loginLogin" placeholder="Loginingizni kiriting" />
+
+      <label for="loginParol">PAROL</label>
+      <input type="password" id="loginParol" placeholder="Parolingizni kiriting" />
+
+      <button type="submit" id="loginBtn" class="btn-primary">KIRISH</button>
+    </form>
+
+    <!-- RO'YXATDAN O'TISH FORMASI (boshida yashirin) -->
+    <form id="registerForm" class="hidden">
+      <label for="regIsm">ISM-FAMILIYA</label>
+      <input type="text" id="regIsm" placeholder="Masalan: Aziz Aliyev" />
+
+      <label for="regLogin">LOGIN O'YLAB TOPING</label>
+      <input type="text" id="regLogin" placeholder="Masalan: aziz11" />
+
+      <label for="regParol">PAROL O'YLAB TOPING</label>
+      <input type="password" id="regParol" placeholder="Kamida 4 ta belgi" />
+
+      <button type="submit" id="registerBtn" class="btn-primary">RO'YXATDAN O'TISH</button>
+    </form>
+
+    <p id="authMessage"></p>
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- 2-BO'LIM: ASOSIY DARSLAR (faqat kirgandan keyin ko'rinadi) -->
+  <!-- ===================================================== -->
+  <section id="mainSection" class="hidden">
+
+    <div class="card">
+      <button id="logoutBtn" type="button">CHIQISH</button>
+      <p>Xush kelibsiz, <strong id="userNameDisplay"></strong>!</p>
+    </div>
+
+    <nav class="card">
+      <button class="nav-btn section-btn active" type="button" data-section="home">BOSH SAHIFA</button>
+      <button class="nav-btn section-btn" type="button" data-section="htmlDars">HTML DARSI</button>
+      <button class="nav-btn section-btn" type="button" data-section="cssDars">CSS DARSI</button>
+      <button class="nav-btn section-btn" type="button" data-section="jsDars">JAVASCRIPT DARSI</button>
+      <button class="nav-btn section-btn" type="button" data-section="usersList">RO'YXATDAN O'TGANLAR</button>
+    </nav>
+
+    <!-- Bosh sahifa bo'limi -->
+    <div id="home" class="card lesson-section">
+      <h2>BOSH SAHIFA</h2>
+      <p>Bu saytda siz veb-sayt yaratishning 3 asosiy tilini o'rganasiz:</p>
+      <p><strong>HTML</strong> -- sahifaning skeletini (matn, rasm, tugma) yaratadi.</p>
+      <p><strong>CSS</strong> -- sahifaga go'zal ko'rinish (rang, shrift, joylashuv) beradi.</p>
+      <p><strong>JavaScript</strong> -- sahifaga harakat va mantiq qo'shadi (masalan, tugma bosilganda nima bo'lishi).</p>
+      <p>Yuqoridagi menyudan kerakli bo'limni tanlang.</p>
+    </div>
+
+    <!-- HTML darsi -->
+    <div id="htmlDars" class="card lesson-section hidden">
+      <h2>HTML DARSI</h2>
+      <p>HTML (HyperText Markup Language) -- sahifaning asosiy qurilishi. Har bir element "teg" (tag) yordamida yoziladi.</p>
+      <pre><code>&lt;h1&gt;Bu sarlavha&lt;/h1&gt;
+&lt;p&gt;Bu oddiy matn&lt;/p&gt;
+&lt;button&gt;Bosing&lt;/button&gt;</code></pre>
+      <p><strong>h1</strong> -- katta sarlavha, <strong>p</strong> -- paragraf (matn), <strong>button</strong> -- tugma.</p>
+      <p>Har bir HTML teg ochiladi <code>&lt;teg&gt;</code> va yopiladi <code>&lt;/teg&gt;</code>.</p>
+    </div>
+
+    <!-- CSS darsi -->
+    <div id="cssDars" class="card lesson-section hidden">
+      <h2>CSS DARSI</h2>
+      <p>CSS (Cascading Style Sheets) -- HTML elementlariga rang, o'lcham va joylashuv beradi.</p>
+      <pre><code>h1 {
+  color: blue;
+  font-size: 40px;
+}</code></pre>
+      <p>Bu kodda <strong>h1</strong> elementining rangini ko'k va shrift o'lchamini 40px qilamiz.</p>
+      <p>CSS odatda <code>&lt;style&gt;</code> tegi ichida yoki alohida faylda yoziladi.</p>
+    </div>
+
+    <!-- JavaScript darsi -->
+    <div id="jsDars" class="card lesson-section hidden">
+      <h2>JAVASCRIPT DARSI</h2>
+      <p>JavaScript -- sahifaga "jonlanish" beradi: tugma bosilganda, forma yuborilganda nima bo'lishini belgilaydi.</p>
+      <pre><code>document.getElementById("tugma").onclick = function() {
+  alert("Siz tugmani bosdingiz!");
+};</code></pre>
+      <p>Bu kod "tugma" nomli elementga bosilganda ogohlantirish oynasini chiqaradi.</p>
+      <p>Ushbu sayt ham JavaScript yordamida Supabase bazasiga ma'lumot yozadi va o'qiydi!</p>
+    </div>
+
+    <!-- Ro'yxatdan o'tganlar ro'yxati -->
+    <div id="usersList" class="card lesson-section hidden">
+      <h2>RO'YXATDAN O'TGAN O'QUVCHILAR</h2>
+      <p id="usersMessage"></p>
+      <ul id="foydalanuvchilarRoyxati"></ul>
+    </div>
+
+  </section>
+
+</div>
+
+<!-- ============ YO'RIQNOMA (QO'LLANMA) ============ -->
+<div class="container">
+  <footer class="card">
+    <h2>YO'RIQNOMA: SUPABASE'NI SOZLASH</h2>
+    <ol>
+      <li>supabase.com saytiga kiring va bepul hisob oching, so'ng "New Project" tugmasi orqali yangi loyiha yarating.</li>
+      <li>Loyiha ochilgach, chap menyudan "SQL Editor" bo'limini oching, shu fayl boshidagi SQL kodni to'liq nusxalab, "RUN" tugmasini bosing.</li>
+      <li>Chap menyudan "Project Settings" -> "API" bo'limiga o'ting. U yerda "Project URL" va "anon public" kalitini topasiz.</li>
+      <li>Shu ikki qiymatni ushbu faylning pastidagi &lt;script&gt; qismida SUPABASE_URL va SUPABASE_ANON_KEY o'zgaruvchilariga joylashtiring.</li>
+      <li>Faylni saqlab, brauzerda ochib sinab ko'ring: ro'yxatdan o'ting, keyin kiring.</li>
+      <li>Agar "row-level security policy" haqida xatolik chiqsa -- bu SQL'dagi policy (siyosat) to'g'ri yaratilmagan degani. SQL Editor'ga qaytib, 3- va 4-qadamdagi "create policy" buyruqlarini qayta ishlatib ko'ring. Jadval nomi "foydalanuvchilar" ekanini tekshiring.</li>
+    </ol>
+  </footer>
+</div>
+
+<script>
+  // =====================================================================
+  // SUPABASE ULANISH SOZLAMALARI
+  // Quyidagi ikki qiymatni Supabase loyihangizdagi
+  // Project Settings -> API bo'limidan olib, shu yerga qo'ying.
+  // =====================================================================
+  const SUPABASE_URL = "https://SIZNING-LOYIHANGIZ.supabase.co"; // <-- bu yerga o'z qiymatlaringizni qo'ying
+  const SUPABASE_ANON_KEY = "SIZNING_ANON_KEY_KALITINGIZ"; // <-- bu yerga o'z qiymatlaringizni qo'ying
+
+  // CDN orqali yuklangan "supabase" global obyektidan createClient funksiyasini olamiz
+  const { createClient } = supabase;
+  // db -- biz Supabase bilan gaplashish uchun ishlatadigan "aloqa vositasi"
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // =====================================================================
+  // HTML ELEMENTLARINI O'ZGARUVCHILARGA OLAMIZ (keyin ishlatish uchun qulay)
+  // =====================================================================
+  const authSection = document.getElementById("authSection");
+  const mainSection = document.getElementById("mainSection");
+  const authMessage = document.getElementById("authMessage");
+
+  const showLoginBtn = document.getElementById("showLoginBtn");
+  const showRegisterBtn = document.getElementById("showRegisterBtn");
+  const loginForm = document.getElementById("loginForm");
+  const registerForm = document.getElementById("registerForm");
+  const loginBtn = document.getElementById("loginBtn");
+  const registerBtn = document.getElementById("registerBtn");
+
+  const userNameDisplay = document.getElementById("userNameDisplay");
+  const logoutBtn = document.getElementById("logoutBtn");
+
+  const usersMessage = document.getElementById("usersMessage");
+  const usersListEl = document.getElementById("foydalanuvchilarRoyxati");
+
+  // =====================================================================
+  // 1) KIRISH / RO'YXATDAN O'TISH FORMALARI ORASIDA ALMASHISH
+  // =====================================================================
+  showLoginBtn.addEventListener("click", function () {
+    loginForm.classList.remove("hidden");
+    registerForm.classList.add("hidden");
+    showLoginBtn.classList.add("active");
+    showRegisterBtn.classList.remove("active");
+    authMessage.textContent = "";
+  });
+
+  showRegisterBtn.addEventListener("click", function () {
+    registerForm.classList.remove("hidden");
+    loginForm.classList.add("hidden");
+    showRegisterBtn.classList.add("active");
+    showLoginBtn.classList.remove("active");
+    authMessage.textContent = "";
+  });
+
+  // =====================================================================
+  // 2) RO'YXATDAN O'TISH -- Supabase jadvaliga yangi qator (INSERT) qo'shamiz
+  // =====================================================================
+  registerForm.addEventListener("submit", async function (e) {
+    // sahifa qayta yuklanib ketmasligi uchun
+    e.preventDefault();
+
+    const ism = document.getElementById("regIsm").value.trim();
+    const login = document.getElementById("regLogin").value.trim();
+    const parol = document.getElementById("regParol").value.trim();
+
+    // Bo'sh maydonlarni tekshirish -- yuborishdan oldin
+    if (!ism || !login || !parol) {
+      authMessage.innerHTML = "<span class='error'>Iltimos, barcha maydonlarni to'ldiring.</span>";
+      return;
+    }
+
+    // Tugmani vaqtincha o'chiramiz va "Yuborilmoqda..." deb yozamiz
+    registerBtn.disabled = true;
+    registerBtn.textContent = "YUBORILMOQDA...";
+
+    try {
+      // Supabase'ga yangi qator qo'shish (insert)
+      const { error } = await db
+        .from("foydalanuvchilar")
+        .insert([{ ism: ism, login: login, parol: parol }]);
+
+      if (error) {
+        // Agar login band bo'lsa, Supabase "unique" xatoligini qaytaradi
+        throw error;
+      }
+
+      authMessage.innerHTML = "<span class='success'>Ro'yxatdan muvaffaqiyatli o'tdingiz! Endi KIRISH orqali tizimga kiring.</span>";
+      registerForm.reset();
+
+      // Ro'yxat ro'yxatini yangilaymiz (talab qilingan 6-shart)
+      loadUsersList();
+
+    } catch (err) {
+      // Xatolikni ekranda ko'rsatamiz (faqat console.log qilmaymiz)
+      authMessage.innerHTML = "<span class='error'>Xatolik: " + err.message + "</span>";
+    } finally {
+      // Tugmani qayta yoqamiz -- tarmoq sekin bo'lsa ham dastur qotib qolmasligi uchun
+      registerBtn.disabled = false;
+      registerBtn.textContent = "RO'YXATDAN O'TISH";
+    }
+  });
+
+  // =====================================================================
+  // 3) KIRISH -- Supabase jadvalidan login va parolni tekshirib topamiz (SELECT)
+  // =====================================================================
+  loginForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const login = document.getElementById("loginLogin").value.trim();
+    const parol = document.getElementById("loginParol").value.trim();
+
+    if (!login || !parol) {
+      authMessage.innerHTML = "<span class='error'>Iltimos, login va parolni kiriting.</span>";
+      return;
+    }
+
+    loginBtn.disabled = true;
+    loginBtn.textContent = "YUBORILMOQDA...";
+
+    try {
+      // Login va parolga mos qatorni qidiramiz
+      const { data, error } = await db
+        .from("foydalanuvchilar")
+        .select("id, ism, login")
+        .eq("login", login)
+        .eq("parol", parol)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data) {
+        // Mos foydalanuvchi topilmadi
+        authMessage.innerHTML = "<span class='error'>Login yoki parol noto'g'ri.</span>";
+        return;
+      }
+
+      // Kirish muvaffaqiyatli -- foydalanuvchi ma'lumotini brauzerda vaqtincha saqlaymiz
+      localStorage.setItem("joriyFoydalanuvchi", JSON.stringify(data));
+      kirishniKorsat(data);
+
+    } catch (err) {
+      authMessage.innerHTML = "<span class='error'>Xatolik: " + err.message + "</span>";
+    } finally {
+      loginBtn.disabled = false;
+      loginBtn.textContent = "KIRISH";
+    }
+  });
+
+  // =====================================================================
+  // 4) KIRGANDAN KEYIN ASOSIY BO'LIMNI KO'RSATISH
+  // =====================================================================
+  function kirishniKorsat(foydalanuvchi) {
+    authSection.classList.add("hidden");
+    mainSection.classList.remove("hidden");
+    userNameDisplay.textContent = foydalanuvchi.ism;
+    loadUsersList();
+  }
+
+  // =====================================================================
+  // 5) CHIQISH -- localStorage'ni tozalab, kirish oynasiga qaytaramiz
+  // =====================================================================
+  logoutBtn.addEventListener("click", function () {
+    localStorage.removeItem("joriyFoydalanuvchi");
+    mainSection.classList.add("hidden");
+    authSection.classList.remove("hidden");
+    authMessage.textContent = "";
+  });
+
+  // =====================================================================
+  // 6) BO'LIMLAR (TAB) ORASIDA ALMASHISH -- BOSH SAHIFA / HTML / CSS / JS / RO'YXAT
+  // =====================================================================
+  const sectionButtons = document.querySelectorAll(".section-btn");
+  const lessonSections = document.querySelectorAll(".lesson-section");
+
+  sectionButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      // barcha tugmalardan "active" klassini olib tashlaymiz
+      sectionButtons.forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+
+      // barcha bo'limlarni yashiramiz, faqat tanlanganini ko'rsatamiz
+      const tanlangan = btn.getAttribute("data-section");
+      lessonSections.forEach(function (sec) {
+        if (sec.id === tanlangan) {
+          sec.classList.remove("hidden");
+        } else {
+          sec.classList.add("hidden");
+        }
+      });
+
+      // agar "ro'yxat" bo'limi tanlansa, ma'lumotni yangilab olamiz
+      if (tanlangan === "usersList") {
+        loadUsersList();
+      }
+    });
+  });
+
+  // =====================================================================
+  // 7) RO'YXATDAN O'TGANLAR RO'YXATINI SUPABASE'DAN O'QIB KO'RSATISH (SELECT)
+  // =====================================================================
+  async function loadUsersList() {
+    usersMessage.textContent = "Yuklanmoqda...";
+    usersListEl.innerHTML = "";
+
+    try {
+      const { data, error } = await db
+        .from("foydalanuvchilar")
+        .select("ism, created_at")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        usersMessage.textContent = "Hozircha yozuv yo'q";
+        return;
+      }
+
+      usersMessage.textContent = "";
+      data.forEach(function (foydalanuvchi) {
+        const li = document.createElement("li");
+        li.textContent = foydalanuvchi.ism;
+        usersListEl.appendChild(li);
+      });
+
+    } catch (err) {
+      usersMessage.innerHTML = "<span class='error'>Xatolik: " + err.message + "</span>";
+    }
+  }
+
+  // =====================================================================
+  // 8) SAHIFA OCHILGANDA -- avval kirgan foydalanuvchi bo'lsa, to'g'ridan ko'rsatamiz
+  // =====================================================================
+  window.addEventListener("DOMContentLoaded", function () {
+    const saqlangan = localStorage.getItem("joriyFoydalanuvchi");
+    if (saqlangan) {
+      try {
+        const foydalanuvchi = JSON.parse(saqlangan);
+        kirishniKorsat(foydalanuvchi);
+      } catch (e) {
+        localStorage.removeItem("joriyFoydalanuvchi");
+      }
+    }
+  });
+</script>
+
+</body>
+</html>
